@@ -8,6 +8,7 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/shopspring/decimal v1.2.0
 	github.com/stretchr/testify v1.7.0
+	github.com/tyler-smith/go-bip39 v1.0.1-0.20181017060643-dbb3b84ba2ef
 	github.com/urfave/cli/v2 v2.3.0
 	github.com/vrischmann/envconfig v1.3.1-0.20201228145200-1b7b4cd0c1d5
 	go.bobheadxi.dev/zapx/zapx v0.6.8
