@@ -1,5 +1,5 @@
 // Package bclient provides a wrapper around go-ethereum's ethclient package
-package bclient
+package main
 
 import (
 	"context"
@@ -8,22 +8,21 @@ import (
 	"encoding/hex"
 	"fmt"
 	"github.com/ethereum/go-ethereum"
-	"io/ioutil"
-	"log"
-	"math/big"
-	"os"
-	"path/filepath"
-	"time"
-
-	bip39 "github.com/tyler-smith/go-bip39"
-
 	_ "github.com/ethereum/go-ethereum/accounts"
-	_ "github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/keystore"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/tyler-smith/go-bip39"
+	"io/ioutil"
+	"log"
+	"math/big"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
 )
 
 // ===== 重要说明 =====
@@ -36,8 +35,8 @@ import (
 
 // ===== 配置区 =====
 const (
-	RPC_URL        = "https://sepolia.infura.io/v3/YOUR_INFURA_KEY" // TODO: 替换为你的 RPC
-	TO_ADDRESS_HEX = "0x000000000000000000000000000000000000dEaD"   // TODO: 替换为你的收款地址
+	RPC_URL        = "https://mainnet.infura.io/v3/aa"            // TODO: 替换为你的 RPC
+	TO_ADDRESS_HEX = "0x000000000000000000000000000000000000dEaD" // TODO: 替换为你的收款地址
 )
 
 func must(err error) {
@@ -160,6 +159,7 @@ func sendTxEIP1559(ctx context.Context, client *ethclient.Client, priv *ecdsa.Pr
 
 // ethereumCallMsg: 仅用于 EstimateGas，避免直接引入 geth 内部类型差异
 // （也可使用 bind.NewKeyedTransactorWithChainID + bind.TransactOpts）
+
 type ethereumCallMsg struct {
 	From  common.Address
 	To    *common.Address
@@ -215,7 +215,7 @@ func subscribeNewBlocksAndPrintTxs(ctx context.Context, client *ethclient.Client
 	}
 }
 
-func main() {
+func main1() {
 	ctx := context.Background()
 
 	// 1) 生成助记词 + 随机私钥（演示）
@@ -251,4 +251,55 @@ func main() {
 	// 注：如不想阻塞，可放到 goroutine 中。
 	// subscribeNewBlocksAndPrintTxs(ctx, client)
 	_ = ksDir // 占位避免未使用报错（若注释掉订阅/转账）
+}
+func main() {
+	queryBalanceOfLinkByAddress("0x95f6E81919B651c83f57A6B78409Ab48D565A581", "0x514910771AF9Ca656af840dff83E8264EcF986CA")
+}
+
+// 查询以太坊主链上 某个用户 LINK的余额
+func queryBalanceOfLinkByAddress(address string, tokenAddr string) {
+	client, err := ethclient.Dial(RPC_URL)
+	if err != nil {
+		log.Fatalf("连接以太坊失败: %v", err)
+	}
+
+	tokenAddress := common.HexToAddress(tokenAddr) // LINK
+	walletAddress := common.HexToAddress(address)
+
+	erc20ABI := `[{"constant":true,"inputs":[{"name":"owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"type":"function"}]`
+
+	parsedABI, err := abi.JSON(strings.NewReader(erc20ABI))
+	if err != nil {
+		log.Fatalf("解析 ABI 失败: %v", err)
+	}
+
+	// 构造调用数据
+	callData, err := parsedABI.Pack("balanceOf", walletAddress)
+	if err != nil {
+		log.Fatalf("打包参数失败: %v", err)
+	}
+
+	// 用 ethereum.CallMsg 调用合约
+	msg := ethereum.CallMsg{
+		To:   &tokenAddress,
+		Data: callData,
+	}
+
+	result, err := client.CallContract(context.Background(), msg, nil)
+	if err != nil {
+		log.Fatalf("调用合约失败: %v", err)
+	}
+
+	// 解码返回值
+	var balance = new(big.Int)
+	err = parsedABI.UnpackIntoInterface(&balance, "balanceOf", result)
+	if err != nil {
+		log.Fatalf("解码失败: %v", err)
+	}
+
+	fmt.Printf("原始余额: %s Wei\n", balance.String())
+
+	// LINK 有 18 位小数
+	humanReadable := new(big.Float).Quo(new(big.Float).SetInt(balance), big.NewFloat(1e18))
+	fmt.Printf("换算后余额: %s LINK\n", humanReadable.Text('f', 18))
 }
